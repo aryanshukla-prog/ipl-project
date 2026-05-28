@@ -286,7 +286,7 @@ with tab2:
 
             # main line
             fig.add_trace(go.Scatter(
-                x=df_chase["ball_number"], y=df_chase["win_prob"],
+                x=df_chase["ball_num"], y=df_chase["win_prob"],
                 mode="lines", line=dict(color="#00C8FF", width=2.5),
                 name=f"{batting_team} Win Prob",
                 hovertemplate=(
@@ -303,7 +303,7 @@ with tab2:
             # wicket markers
             if not wicket_balls.empty:
                 fig.add_trace(go.Scatter(
-                    x=wicket_balls["ball_number"], y=wicket_balls["win_prob"],
+                    x=wicket_balls["ball_num"], y=wicket_balls["win_prob"],
                     mode="markers",
                     marker=dict(symbol="x", size=12, color="#FF4C4C",
                                 line=dict(width=2.5, color="#FF4C4C")),
