@@ -95,9 +95,11 @@ FEATURES = ["cum_runs", "runs_needed", "balls_remaining", "wickets_remaining",
 
 # ── Win prob builder ───────────────────────────────────────────────────────────
 def build_chase_states(match_id):
+    # 1. Open the connection cleanly
     conn = get_conn()
+    
     try:
-        # 1. Calculate the first innings total score from the deliveries table
+        # 2. Run the first innings query
         q1 = """
             SELECT SUM(runs_total) AS first_innings_total 
             FROM deliveries 
@@ -105,30 +107,35 @@ def build_chase_states(match_id):
         """
         target_row = pd.read_sql(q1, conn, params=(match_id,))
         
-        # Check if we actually found data for this match id
         if target_row.empty or pd.isna(target_row.iloc[0]["first_innings_total"]):
             return None, None
             
-        # Target to win is 1st innings total runs + 1
         target = int(target_row.iloc[0]["first_innings_total"]) + 1
 
-        # 2. Fetch the second innings progression data
+        # 3. Run the second innings query using the SAME active connection
         q2 = """
-            SELECT over_num, ball_num, runs_total, is_wicket,
+            SELECT over_num, ball_num AS ball_number, runs_total, is_wicket,
                    extras_type, batting_team, bowling_team, player_out, dismissal_kind
             FROM deliveries 
             WHERE match_id = ? AND inning = 2
             ORDER BY over_num, ball_num
         """
         df = pd.read_sql(q2, conn, params=(match_id,))
-    finally:
-        conn.close()  # Cleanly closes the database connection
         
+    finally:
+        # 4. This block GUARANTEES the connection closes ONLY after both queries run
+        conn.close()
+        
+    # 5. Run your math/predictions on the extracted DataFrame safely down here
     if df.empty:
         return None, None
         
-    # ... rest of your calculations (fillna, features processing, win_prob prediction) ...
+    # --- Your feature engineering columns code goes here ---
+    # (e.g., df["cum_runs"] = ..., df.fillna(0), model.predict_proba, etc.)
+    
     return df, target
+
+
 
     df["is_legal"]   = (~df["extras_type"].isin(["wides", "noballs"])).astype(int)
     df["cum_runs"]   = df["runs_total"].cumsum()
