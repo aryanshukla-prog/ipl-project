@@ -59,34 +59,43 @@ CARD = "#1c1f2e"
 
 # ── Load resources ─────────────────────────────────────────────────────────────
 @st.cache_resource
+# ── Load resources ─────────────────────────────────────────────────────────────
+@st.cache_resource
 def load_model():
     with open("win_prob_model.pkl", "rb") as f:
         return pickle.load(f)
 
-@st.cache_resource
+# Completely independent connection engine to avoid Streamlit multi-threading locks
 def get_conn():
-    return sqlite3.connect("ipl.db", check_same_thread=False)
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    db_path = os.path.join(BASE_DIR, "ipl.db")
+    return sqlite3.connect(db_path, check_same_thread=False, isolation_level=None)
  
 @st.cache_data
 def load_matches():
-    conn = get_conn()
-    return pd.read_sql("""
-        SELECT match_id, season, date, team1, team2, winner, venue, toss_winner, toss_decision
-        FROM matches
-        WHERE winner IS NOT NULL
-        ORDER BY date DESC
-    """, conn)
+    db_connection = get_conn()
+    try:
+        return pd.read_sql("""
+            SELECT match_id, season, date, team1, team2, winner, venue, toss_winner, toss_decision
+            FROM matches
+            WHERE winner IS NOT NULL
+            ORDER BY date DESC
+        """, db_connection)
+    finally:
+        db_connection.close()
 
 @st.cache_data
 def load_analysis_tables():
-    conn = get_conn()
-    swing   = pd.read_sql("SELECT * FROM wicket_swing_index ORDER BY avg_wp_drop_pct DESC", conn)
-    leverage = pd.read_sql("SELECT * FROM powerplay_leverage", conn)
-    choke   = pd.read_sql("SELECT * FROM choke_detector ORDER BY choke_rate_pct DESC", conn)
-    return swing, leverage, choke
+    db_connection = get_conn()
+    try:
+        swing   = pd.read_sql("SELECT * FROM wicket_swing_index ORDER BY avg_wp_drop_pct DESC", db_connection)
+        leverage = pd.read_sql("SELECT * FROM powerplay_leverage", db_connection)
+        choke   = pd.read_sql("SELECT * FROM choke_detector ORDER BY choke_rate_pct DESC", db_connection)
+        return swing, leverage, choke
+    finally:
+        db_connection.close()
 
 model   = load_model()
-conn    = get_conn()
 matches = load_matches()
 swing_df, leverage_df, choke_df = load_analysis_tables()
 
@@ -94,34 +103,25 @@ FEATURES = ["cum_runs", "runs_needed", "balls_remaining", "wickets_remaining",
             "required_rr", "current_rr", "rr_diff", "cum_overs"]
 
 # ── Win prob builder ───────────────────────────────────────────────────────────
-# ── 1. Simplify get_conn to return a completely independent connection ───────
-def get_conn():
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    db_path = os.path.join(BASE_DIR, "ipl.db")
-    # isolation_level=None sets autocommit mode, preventing locked states
-    return sqlite3.connect(db_path, check_same_thread=False, isolation_level=None)
-
-# ── 2. Update build_chase_states ──────────────────────────────────────────────
 def build_chase_states(match_id):
-    # Establish a fresh connection object dedicated to ONLY this execution thread
     db_connection = get_conn()
     
     try:
+        # 1. Fetch First Innings Score to establish the target
         q1 = """
             SELECT SUM(runs_total) AS first_innings_total 
             FROM deliveries 
             WHERE match_id = ? AND inning = 1
         """
-        # Execute query using the dedicated connection string
         target_row = pd.read_sql(q1, db_connection, params=(match_id,))
         
         if target_row.empty or pd.isna(target_row.iloc[0]["first_innings_total"]):
-            db_connection.close()
             return None, None
             
         target = int(target_row.iloc[0]["first_innings_total"]) + 1
 
-  
+        # 2. Fetch Second Innings ball-by-ball data
+        # Selecting ball_num as both ball_num and ball_number satisfies both math and plots
         q2 = """
             SELECT over_num, 
                    ball_num, 
@@ -132,13 +132,10 @@ def build_chase_states(match_id):
             WHERE match_id = ? AND inning = 2
             ORDER BY over_num, ball_num
         """
-        
         df = pd.read_sql(q2, db_connection, params=(match_id,))
         
     except Exception as e:
-        # Catch any structural errors cleanly
         print(f"Database query error: {e}")
-        db_connection.close()
         raise e
     finally:
         try:
@@ -149,23 +146,43 @@ def build_chase_states(match_id):
     if df.empty:
         return None, None
         
-    # ─── ADD / MOVE YOUR DATA PROCESSING LOGIC HERE ───────────────────────
-    # (Make sure these lines match your exact logic for creating columns!)
-    
-    # Example feature engineering (Ensure these match what your model expects):
-    # df["cum_runs"] = df["runs_total"].cumsum()
-    # df["runs_needed"] = target - df["cum_runs"]
-    # ... [your other cumulative column calculations here] ...
+    # ─── 3. FEATURE ENGINEERING (Executed in the correct mathematical order) ───
+    df["is_legal"]   = (~df["extras_type"].isin(["wides", "noballs"])).astype(int)
+    df["cum_runs"]   = df["runs_total"].cumsum()
+    df["cum_wickets"] = df["is_wicket"].cumsum()
+    df["cum_balls"]  = df["is_legal"].cumsum()
+    df["cum_overs"]  = df["cum_balls"] / 6
+    df["ball_number"] = range(1, len(df) + 1)
 
-    # Generate the missing 'win_prob' column using your loaded model
-    # Assuming your model features are stored in a variable named FEATURES:
-    X = df[FEATURES] 
+    df["runs_needed"]       = target - df["cum_runs"]
+    df["balls_remaining"]   = 120 - df["cum_balls"]
+    df["wickets_remaining"] = 10 - df["cum_wickets"]
     
-    # model.predict_proba returns [prob_loss, prob_win]. We extract prob_win:
-    df["win_prob"] = model.predict_proba(X)[:, 1] 
+    # Safe Run Rate calculations using np.where to prevent Division by Zero errors
+    df["required_rr"]       = np.where(
+        df["balls_remaining"] > 0,
+        df["runs_needed"] / (df["balls_remaining"] / 6), 999)
+    df["current_rr"]        = np.where(
+        df["cum_overs"] > 0, df["cum_runs"] / df["cum_overs"], 0)
+    df["rr_diff"]           = df["current_rr"] - df["required_rr"]
+
+    # Fill numeric feature columns with 0
+    numeric_cols = ["cum_runs", "cum_wickets", "cum_balls", "runs_needed",
+                    "balls_remaining", "wickets_remaining", "required_rr", "current_rr", "rr_diff"]
+    df[numeric_cols] = df[numeric_cols].fillna(0)
+
+    # Fill text columns with an empty string
+    text_cols = ["extras_type", "player_out", "dismissal_kind"]
+    df[text_cols] = df[text_cols].fillna("")
+
+    df["required_rr"] = df["required_rr"].clip(lower=0)
+    df["over_label"]  = df["over_num"] + 1
+
+    # ─── 4. ML MODEL PREDICTION ─────────────────────────────────────────
+    # Now that all required features are built, your model will run flawlessly
+    df["win_prob"] = model.predict_proba(df[FEATURES])[:, 1]
     
-    # ─── NOW IT IS SAFE TO RETURN ─────────────────────────────────────────
-    return df, target
+    return df, int(target)
 
 
 
