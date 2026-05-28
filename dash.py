@@ -279,7 +279,7 @@ with tab2:
 
             # area fill
             fig.add_trace(go.Scatter(
-                x=df_chase["ball_number"], y=df_chase["win_prob"],
+                x=df_chase["ball_num"], y=df_chase["win_prob"],
                 fill="tozeroy", fillcolor="rgba(0,200,255,0.07)",
                 line=dict(width=0), showlegend=False, hoverinfo="skip"
             ))
