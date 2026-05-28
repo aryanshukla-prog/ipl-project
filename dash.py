@@ -84,7 +84,7 @@ def load_matches():
 
 @st.cache_data
 def load_analysis_tables():
-    
+    conn = get_conn()
     swing   = pd.read_sql("SELECT * FROM wicket_swing_index ORDER BY avg_wp_drop_pct DESC", conn)
     leverage = pd.read_sql("SELECT * FROM powerplay_leverage", conn)
     choke   = pd.read_sql("SELECT * FROM choke_detector ORDER BY choke_rate_pct DESC", conn)
