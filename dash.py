@@ -64,7 +64,7 @@ def load_model():
         return pickle.load(f)
 
 @st.cache_resource
-import os  # Make sure this import is at the top of your file
+
 
 def get_conn():
     # Finds the absolute directory path of dash.py
