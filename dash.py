@@ -84,7 +84,7 @@ def load_matches():
 
 @st.cache_data
 def load_analysis_tables():
-    conn = get_conn()
+    
     swing   = pd.read_sql("SELECT * FROM wicket_swing_index ORDER BY avg_wp_drop_pct DESC", conn)
     leverage = pd.read_sql("SELECT * FROM powerplay_leverage", conn)
     choke   = pd.read_sql("SELECT * FROM choke_detector ORDER BY choke_rate_pct DESC", conn)
@@ -100,9 +100,11 @@ FEATURES = ["cum_runs", "runs_needed", "balls_remaining", "wickets_remaining",
 
 # ── Win prob builder ───────────────────────────────────────────────────────────
 def build_chase_states(match_id):
-    q1 = "SELECT SUM(runs_total) AS total FROM deliveries WHERE match_id=? AND inning=1"
-    target = pd.read_sql(q1, conn, params=(match_id,)).iloc[0]["total"] + 1
-
+  
+    with get_conn() as conn:
+        q1 = "SELECT total FROM matches WHERE match_id = ?" # (or whatever your query is)
+        target = pd.read_sql(q1, conn, params=(match_id,)).iloc[0]["total"] + 1
+    
     q2 = """
         SELECT over_num, ball_num, runs_total, is_wicket,
                extras_type, batting_team, bowling_team, player_out, dismissal_kind
