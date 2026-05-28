@@ -5,7 +5,7 @@ import pickle
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
-
+import os 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="IPL Win Probability Dashboard",
@@ -64,8 +64,13 @@ def load_model():
         return pickle.load(f)
 
 @st.cache_resource
+import os  # Make sure this import is at the top of your file
+
 def get_conn():
-    return sqlite3.connect("ipl.db", check_same_thread=False)
+    # Finds the absolute directory path of dash.py
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    db_path = os.path.join(BASE_DIR, "ipl.db")
+    return sqlite3.connect(db_path)
 
 @st.cache_data
 def load_matches():
