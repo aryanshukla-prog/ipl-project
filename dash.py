@@ -95,20 +95,40 @@ FEATURES = ["cum_runs", "runs_needed", "balls_remaining", "wickets_remaining",
 
 # ── Win prob builder ───────────────────────────────────────────────────────────
 def build_chase_states(match_id):
-  
-    with get_conn() as conn:
-        q1 = "SELECT total FROM matches WHERE match_id = ?" # (or whatever your query is)
-        target = pd.read_sql(q1, conn, params=(match_id,)).iloc[0]["total"] + 1
-    
-    q2 = """
-        SELECT over_num, ball_num, runs_total, is_wicket,
-               extras_type, batting_team, bowling_team, player_out, dismissal_kind
-        FROM deliveries WHERE match_id=? AND inning=2
-        ORDER BY over_num, ball_num
-    """
-    df = pd.read_sql(q2, conn, params=(match_id,))
+    conn = get_conn()
+    try:
+        # 1. Calculate the first innings total score from the deliveries table
+        q1 = """
+            SELECT SUM(runs_total) AS first_innings_total 
+            FROM deliveries 
+            WHERE match_id = ? AND inning = 1
+        """
+        target_row = pd.read_sql(q1, conn, params=(match_id,))
+        
+        # Check if we actually found data for this match id
+        if target_row.empty or pd.isna(target_row.iloc[0]["first_innings_total"]):
+            return None, None
+            
+        # Target to win is 1st innings total runs + 1
+        target = int(target_row.iloc[0]["first_innings_total"]) + 1
+
+        # 2. Fetch the second innings progression data
+        q2 = """
+            SELECT over_num, ball_num, runs_total, is_wicket,
+                   extras_type, batting_team, bowling_team, player_out, dismissal_kind
+            FROM deliveries 
+            WHERE match_id = ? AND inning = 2
+            ORDER BY over_num, ball_num
+        """
+        df = pd.read_sql(q2, conn, params=(match_id,))
+    finally:
+        conn.close()  # Cleanly closes the database connection
+        
     if df.empty:
         return None, None
+        
+    # ... rest of your calculations (fillna, features processing, win_prob prediction) ...
+    return df, target
 
     df["is_legal"]   = (~df["extras_type"].isin(["wides", "noballs"])).astype(int)
     df["cum_runs"]   = df["runs_total"].cumsum()
