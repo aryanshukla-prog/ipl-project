@@ -121,13 +121,18 @@ def build_chase_states(match_id):
             
         target = int(target_row.iloc[0]["first_innings_total"]) + 1
 
+  
         q2 = """
-            SELECT over_num, ball_num AS ball_number, runs_total, is_wicket,
+            SELECT over_num, 
+                   ball_num, 
+                   ball_num AS ball_number, 
+                   runs_total, is_wicket,
                    extras_type, batting_team, bowling_team, player_out, dismissal_kind
             FROM deliveries 
             WHERE match_id = ? AND inning = 2
             ORDER BY over_num, ball_num
         """
+        
         df = pd.read_sql(q2, db_connection, params=(match_id,))
         
     except Exception as e:
