@@ -94,25 +94,33 @@ FEATURES = ["cum_runs", "runs_needed", "balls_remaining", "wickets_remaining",
             "required_rr", "current_rr", "rr_diff", "cum_overs"]
 
 # ── Win prob builder ───────────────────────────────────────────────────────────
+# ── 1. Simplify get_conn to return a completely independent connection ───────
+def get_conn():
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    db_path = os.path.join(BASE_DIR, "ipl.db")
+    # isolation_level=None sets autocommit mode, preventing locked states
+    return sqlite3.connect(db_path, check_same_thread=False, isolation_level=None)
+
+# ── 2. Update build_chase_states ──────────────────────────────────────────────
 def build_chase_states(match_id):
-    # 1. Open the connection cleanly
-    conn = get_conn()
+    # Establish a fresh connection object dedicated to ONLY this execution thread
+    db_connection = get_conn()
     
     try:
-        # 2. Run the first innings query
         q1 = """
             SELECT SUM(runs_total) AS first_innings_total 
             FROM deliveries 
             WHERE match_id = ? AND inning = 1
         """
-        target_row = pd.read_sql(q1, conn, params=(match_id,))
+        # Execute query using the dedicated connection string
+        target_row = pd.read_sql(q1, db_connection, params=(match_id,))
         
         if target_row.empty or pd.isna(target_row.iloc[0]["first_innings_total"]):
+            db_connection.close()
             return None, None
             
         target = int(target_row.iloc[0]["first_innings_total"]) + 1
 
-        # 3. Run the second innings query using the SAME active connection
         q2 = """
             SELECT over_num, ball_num AS ball_number, runs_total, is_wicket,
                    extras_type, batting_team, bowling_team, player_out, dismissal_kind
@@ -120,21 +128,25 @@ def build_chase_states(match_id):
             WHERE match_id = ? AND inning = 2
             ORDER BY over_num, ball_num
         """
-        df = pd.read_sql(q2, conn, params=(match_id,))
+        df = pd.read_sql(q2, db_connection, params=(match_id,))
         
+    except Exception as e:
+        # Catch any structural errors cleanly
+        print(f"Database query error: {e}")
+        db_connection.close()
+        raise e
     finally:
-        # 4. This block GUARANTEES the connection closes ONLY after both queries run
-        conn.close()
+        # Explicit, absolute termination of this distinct connection thread
+        try:
+            db_connection.close()
+        except:
+            pass
         
-    # 5. Run your math/predictions on the extracted DataFrame safely down here
     if df.empty:
         return None, None
         
-    # --- Your feature engineering columns code goes here ---
-    # (e.g., df["cum_runs"] = ..., df.fillna(0), model.predict_proba, etc.)
-    
+    # ... your math/predictions engineering columns continue safely below ...
     return df, target
-
 
 
     df["is_legal"]   = (~df["extras_type"].isin(["wides", "noballs"])).astype(int)
