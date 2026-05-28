@@ -141,7 +141,6 @@ def build_chase_states(match_id):
         db_connection.close()
         raise e
     finally:
-        # Explicit, absolute termination of this distinct connection thread
         try:
             db_connection.close()
         except:
@@ -150,8 +149,24 @@ def build_chase_states(match_id):
     if df.empty:
         return None, None
         
-    # ... your math/predictions engineering columns continue safely below ...
+    # ─── ADD / MOVE YOUR DATA PROCESSING LOGIC HERE ───────────────────────
+    # (Make sure these lines match your exact logic for creating columns!)
+    
+    # Example feature engineering (Ensure these match what your model expects):
+    # df["cum_runs"] = df["runs_total"].cumsum()
+    # df["runs_needed"] = target - df["cum_runs"]
+    # ... [your other cumulative column calculations here] ...
+
+    # Generate the missing 'win_prob' column using your loaded model
+    # Assuming your model features are stored in a variable named FEATURES:
+    X = df[FEATURES] 
+    
+    # model.predict_proba returns [prob_loss, prob_win]. We extract prob_win:
+    df["win_prob"] = model.predict_proba(X)[:, 1] 
+    
+    # ─── NOW IT IS SAFE TO RETURN ─────────────────────────────────────────
     return df, target
+
 
 
     df["is_legal"]   = (~df["extras_type"].isin(["wides", "noballs"])).astype(int)
