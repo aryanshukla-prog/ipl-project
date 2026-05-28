@@ -64,40 +64,18 @@ def load_model():
         return pickle.load(f)
 
 @st.cache_resource
-# ── Update your connection function to handle threads gracefully ──────────────
 def get_conn():
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    db_path = os.path.join(BASE_DIR, "ipl.db")
-    # check_same_thread=False allows Streamlit's threads to access the connection structure safely
-    return sqlite3.connect(db_path, check_same_thread=False)
-
-# ── Update build_chase_states (Around Line 102) ──────────────────────────────
-def build_chase_states(match_id):
+    return sqlite3.connect("ipl.db", check_same_thread=False)
+ 
+@st.cache_data
+def load_matches():
     conn = get_conn()
-    try:
-        q1 = "SELECT SUM(runs_total) AS total FROM deliveries WHERE match_id=? AND inning=1"
-        target_row = pd.read_sql(q1, conn, params=(match_id,))
-        if target_row.empty or pd.isna(target_row.iloc[0]["total"]):
-            return None, None
-            
-        target = target_row.iloc[0]["total"] + 1
-
-        q2 = """
-            SELECT over_num, ball_num, runs_total, is_wicket,
-                   extras_type, batting_team, bowling_team, player_out, dismissal_kind
-            FROM deliveries WHERE match_id=? AND inning=2
-            ORDER BY over_num, ball_num
-        """
-        df = pd.read_sql(q2, conn, params=(match_id,))
-    finally:
-        conn.close()  # This explicitly closes the connection cleanly every single time
-        
-    if df.empty:
-        return None, None
-        
-    # ... rest of your calculations (fillna, win_prob, etc.) ...
-    return df, target
-
+    return pd.read_sql("""
+        SELECT match_id, season, date, team1, team2, winner, venue, toss_winner, toss_decision
+        FROM matches
+        WHERE winner IS NOT NULL
+        ORDER BY date DESC
+    """, conn)
 
 @st.cache_data
 def load_analysis_tables():
