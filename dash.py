@@ -64,8 +64,8 @@ def load_model():
         with open("win_prob_model.pkl", "rb") as f:
             return pickle.load(f)
     except Exception:
-        import subprocess
-        subprocess.run(["python", "win_probability.py"], check=True)
+        import subprocess, sys
+        subprocess.run([sys.executable, "win_probability.py"], check=True)
         with open("win_prob_model.pkl", "rb") as f:
             return pickle.load(f)
 
