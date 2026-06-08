@@ -62,8 +62,14 @@ CARD = "#1c1f2e"
 # ── Load resources ─────────────────────────────────────────────────────────────
 @st.cache_resource
 def load_model():
-    with open("win_prob_model.pkl", "rb") as f:
-        return pickle.load(f)
+    try:
+        with open("win_prob_model.pkl", "rb") as f:
+            return pickle.load(f)
+    except Exception:
+        import subprocess
+        subprocess.run(["python", "win_probability.py"], check=True)
+        with open("win_prob_model.pkl", "rb") as f:
+            return pickle.load(f)
 
 # Completely independent connection engine to avoid Streamlit multi-threading locks
 def get_conn():
