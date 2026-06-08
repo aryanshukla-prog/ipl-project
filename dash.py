@@ -59,8 +59,6 @@ CARD = "#1c1f2e"
 
 # ── Load resources ─────────────────────────────────────────────────────────────
 @st.cache_resource
-# ── Load resources ─────────────────────────────────────────────────────────────
-@st.cache_resource
 def load_model():
     try:
         with open("win_prob_model.pkl", "rb") as f:
